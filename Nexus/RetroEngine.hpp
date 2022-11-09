@@ -14,6 +14,10 @@
 #define RETRO_USE_MOD_LOADER (1)
 #endif //  !RETRO_USE_ORIGINAL_CODE
 
+#ifdef RETRO_DOS
+#undef __STRICT_ANSI__
+#endif
+
 // ================
 // STANDARD LIBS
 // ================
@@ -85,13 +89,25 @@ typedef unsigned int uint;
 #define DEFAULT_FULLSCREEN   false
 #endif
 
-#if RETRO_PLATFORM == RETRO_WIN || RETRO_PLATFORM == RETRO_OSX || RETRO_PLATFORM == RETRO_iOS                        \
-    || RETRO_PLATFORM == RETRO_UWP
+#if (RETRO_PLATFORM == RETRO_WIN || RETRO_PLATFORM == RETRO_OSX || RETRO_PLATFORM == RETRO_iOS                        \
+    || RETRO_PLATFORM == RETRO_UWP)
 #define RETRO_USING_SDL1 (0)
 #define RETRO_USING_SDL2 (1)
 #else // Since its an else & not an elif these platforms probably aren't supported yet
 #define RETRO_USING_SDL1 (0)
 #define RETRO_USING_SDL2 (0)
+#endif
+
+#if RETRO_USING_ALLEGRO4
+#undef RETRO_USING_SDL1
+#undef RETRO_USING_SDL2
+
+typedef signed char Sint8;
+typedef short Sint16;
+typedef int Sint32;
+typedef unsigned char Uint8;
+typedef unsigned short Uint16;
+typedef unsigned int Uint32;
 #endif
 
 enum RetroLanguages { RETRO_EN = 0, RETRO_FR = 1, RETRO_IT = 2, RETRO_DE = 3, RETRO_ES = 4, RETRO_JP = 5 };
@@ -117,6 +133,23 @@ enum RetroBytecodeFormat {
 #include <SDL.h>
 #elif RETRO_USING_SDL1
 #include <SDL.h>
+#elif RETRO_USING_ALLEGRO4
+#include <allegro.h>
+
+#if RETRO_WSSAUDIO
+extern "C" {
+#include <wss.h>
+}
+#endif
+
+#if RETRO_DOSSOUND
+#define DOSSOUND_INT	0x64
+
+#include <dos.h>
+#include <dpmi.h>
+#include <sys/movedata.h>
+#endif
+
 #endif
 #include <vorbis/vorbisfile.h>
 #elif RETRO_PLATFORM == RETRO_OSX
@@ -133,6 +166,16 @@ enum RetroBytecodeFormat {
 
 extern bool usingCWD;
 extern bool engineDebugMode;
+
+#if defined(__LINUX__) && __BYTE_ORDER == __BIG_ENDIAN
+#define RETRO_BIG_ENDIAN
+#endif
+
+#ifdef RETRO_BIG_ENDIAN
+static const bool isBigEndian = true;
+#else
+static const bool isBigEndian = false;
+#endif
 
 // Utils
 #include "Ini.hpp"
@@ -239,6 +282,10 @@ public:
     SDL_Surface *videoBuffer    = nullptr;
 
     SDL_Event sdlEvents;
+#endif
+
+#if RETRO_DOS
+     int useVgaMode;
 #endif
 };
 

@@ -3,9 +3,45 @@ ifeq ($(STATIC),1)
   CXXFLAGS_ALL += -static
 endif
 
-CXXFLAGS_ALL += -MMD -MP -MF objects/$*.d $(shell pkg-config --cflags $(PKG_CONFIG_STATIC_FLAG) sdl2 vorbisfile vorbis) $(CXXFLAGS) 
+ifeq ($(DOS), 1)
+USE_ALLEGRO4=1
+endif
+
+ifeq ($(USE_ALLEGRO4),1)
+  ifeq ($(DOS), 1)
+      CXXFLAGS_ALL += -DRETRO_USING_ALLEGRO4 -DRETRO_DOS
+      CXX = i586-pc-msdosdjgpp-g++
+      CC = i586-pc-msdosdjgpp-gcc
+      LIBS_ALL += -lalleg
+      
+	ifneq ($(WSSAUDIO),)
+		CXXFLAGS_ALL += -DRETRO_WSSAUDIO
+		LIBS_ALL += -lwss
+	endif
+		
+	ifneq ($(DOSSOUND),)
+		CXXFLAGS_ALL += -DRETRO_DOSSOUND
+	endif
+  else 
+      CXXFLAGS_ALL += -DRETRO_USING_ALLEGRO4 $(shell allegro-config --cflags)
+      LIBS_ALL += $(shell allegro-config --libs)
+  endif
+else
+  CXXFLAGS_ALL += $(shell pkg-config --cflags $(PKG_CONFIG_STATIC_FLAG) sdl2)
+  LIBS_ALL += $(shell pkg-config --libs $(PKG_CONFIG_STATIC_FLAG) sdl2)
+endif
+
+CXXFLAGS_ALL += -MMD -MP -MF objects/$*.d 
+
+ifeq ($(DOS), 1)
+  CXXFLAGS_ALL += $(CXXFLAGS)
+  LIBS_ALL += -lvorbisfile -lvorbis -logg
+else
+  CXXFLAGS_ALL += $(shell pkg-config --cflags $(PKG_CONFIG_STATIC_FLAG) vorbisfile vorbis) $(CXXFLAGS)
+  LIBS_ALL += $(shell pkg-config --libs $(PKG_CONFIG_STATIC_FLAG) vorbisfile vorbis) -pthread $(LIBS)
+endif
+
 LDFLAGS_ALL += $(LDFLAGS)
-LIBS_ALL += $(shell pkg-config --libs $(PKG_CONFIG_STATIC_FLAG) sdl2 vorbisfile vorbis) -pthread $(LIBS)
 
 SOURCES = \
   Nexus/Animation.cpp \

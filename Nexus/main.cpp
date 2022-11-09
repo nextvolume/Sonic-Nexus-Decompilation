@@ -66,3 +66,6 @@ int main(int argc, char *argv[])
 
     return 0;
 }
+#if RETRO_USING_ALLEGRO4
+END_OF_MAIN()
+#endif

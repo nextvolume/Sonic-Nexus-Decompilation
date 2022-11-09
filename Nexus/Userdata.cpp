@@ -56,6 +56,10 @@ void InitUserdata()
         ini.SetInteger("Window", "ScreenWidth", SCREEN_XSIZE = DEFAULT_SCREEN_XSIZE);
         ini.SetInteger("Window", "RefreshRate", Engine.refreshRate = 60);
         ini.SetInteger("Window", "ColourMode", Engine.colourMode = 0);
+	    
+#if RETRO_DOS
+        ini.SetInteger("Window", "UseVGAMode", Engine.useVgaMode = 0);
+#endif
 
         ini.SetFloat("Audio", "BGMVolume", bgmVolume / (float)MAX_VOLUME);
         ini.SetFloat("Audio", "SFXVolume", sfxVolume / (float)MAX_VOLUME);
@@ -144,8 +148,14 @@ void InitUserdata()
         int cm = Engine.colourMode;
         if (!ini.GetInteger("Window", "ColourMode", &cm))
             cm = 1;
+		
         Engine.colourMode = cm;
 
+#if RETRO_DOS
+	if (!ini.GetInteger("Window", "UseVgaMode", &Engine.useVgaMode))
+	    Engine.useVgaMode=0;
+#endif
+	
         float bv = 0, sv = 0;
         if (!ini.GetFloat("Audio", "BGMVolume", &bv))
             bv = 1.0f;
@@ -297,6 +307,10 @@ void writeSettings() {
     ini.SetInteger("Window", "RefreshRate", Engine.refreshRate);
     ini.SetComment("Window", "CMComment", "Determines the output colour mode (0 = 8-bit, 1 = 16-bit, 2 = 32-bit)");
     ini.SetInteger("Window", "ColourMode", Engine.colourMode);
+#if RETRO_DOS    
+    ini.SetComment("Window", "UseVgaModeComment", "Use VGA Mode");
+    ini.SetInteger("Window", "UseVgaMode", Engine.useVgaMode);
+#endif
 
     ini.SetFloat("Audio", "BGMVolume", bgmVolume / (float)MAX_VOLUME);
     ini.SetFloat("Audio", "SFXVolume", sfxVolume / (float)MAX_VOLUME);

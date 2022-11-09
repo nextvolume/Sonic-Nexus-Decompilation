@@ -16,6 +16,40 @@ int gfxDataPosition;
 GFXSurface gfxSurface[SURFACE_MAX];
 byte graphicData[GFXDATA_MAX];
 
+#if RETRO_USING_ALLEGRO4
+BITMAP *screenBuffer;
+#endif
+
+#ifdef RETRO_DOS
+BITMAP *screen8Buffer = NULL;
+
+#define NUM_OF_VGA_MODES 6
+
+const struct
+{
+	int mode;
+	Sint16 w, h;
+}VGAModes[NUM_OF_VGA_MODES] = 
+{
+    { GFX_VGA, 320, 200 },
+    { GFX_MODEX, 320, 240 },
+    { GFX_MODEX, 360, 240 },
+    { GFX_MODEX, 376, 282 },
+    { GFX_MODEX, 400, 300 },
+    { GFX_MODEX, 256, 240 }
+};
+
+int useVGAMode = 0;
+#endif
+
+static volatile bool retro_close_button = false;
+
+static void retro_close_button_callback(void)
+{
+	retro_close_button = true;
+}
+END_OF_FUNCTION(retro_close_button_callback)
+
 int InitRenderDevice()
 {
     char gameTitle[0x40];
@@ -147,6 +181,111 @@ int InitRenderDevice()
     Engine.borderless = false; // disabled
 #endif
 
+
+#if RETRO_USING_ALLEGRO4
+    allegro_init();
+    
+    install_keyboard();
+    install_mouse();
+    
+    int depth = (Engine.colourMode == 0) ? 8 : ((Engine.colourMode == 1) ? 16 : 32);
+
+    set_color_depth(depth);
+    
+    if (
+#if RETRO_DOS
+        (useVGAMode = Engine.useVgaMode) ||
+#endif
+        set_gfx_mode(Engine.startFullScreen ? GFX_AUTODETECT_FULLSCREEN : GFX_AUTODETECT_WINDOWED,
+        SCREEN_XSIZE * Engine.windowScale, SCREEN_YSIZE * Engine.windowScale,
+	0, 0) != 0
+    )
+    {
+#if RETRO_DOS
+        if (!useVGAMode) {
+	    printLog("Couldn't get hi-color mode.");
+	    useVGAMode=1;
+        } 
+
+	set_color_depth(8);
+	
+	Engine.colourMode  = 0;
+	Engine.windowScale  = 1;
+	
+	int m = useVGAMode-1;
+	
+	if (m < 0 || m >= NUM_OF_VGA_MODES)
+		printLog("ERROR: Invalid VGA mode specified!");
+	
+	printLog("Using %s video mode %dx%d", (VGAModes[m].mode==GFX_VGA)?"VGA":"Mode-X",
+		VGAModes[m].w, VGAModes[m].h);
+	
+	if (m >= 0 && m < NUM_OF_VGA_MODES && set_gfx_mode(VGAModes[m].mode, VGAModes[m].w,
+            VGAModes[m].h, 0, 0) == 0) {
+	    PALETTE rgbPal;
+	    generate_332_palette(rgbPal);
+	    
+	    rgbPal[0].r = 0;
+	    rgbPal[0].g = 0;
+	    rgbPal[0].b = 0;
+	    
+	    set_palette(rgbPal);
+	    SetScreenSize(SCREEN_W, SCREEN_YSIZE);
+
+	  //  screen8Buffer = create_bitmap(SCREEN_XSIZE, SCREEN_YSIZE);
+	    Engine.windowScale = 1;
+	}
+	else
+#endif
+	{
+	    printLog("ERROR: Couldn't initialize a graphic mode!");
+	    return 0;
+	}
+    }
+    
+    Engine.isFullScreen = Engine.startFullScreen;
+    
+/* Engine.screenBuffer =
+	create_bitmap_ex(16, SCREEN_XSIZE, SCREEN_YSIZE);
+
+    if (!Engine.screenBuffer) {
+        printLog("ERROR: failed to create screen buffer!");
+        return 0;
+    }
+	
+    Engine.frameBuffer =  (ushort*)Engine.screenBuffer->dat;
+*/    
+
+     printf("SCREEN_XSIZE = %d, SCREEN_YSIZE = %d\n", SCREEN_XSIZE, SCREEN_YSIZE);
+
+    screenBuffer = create_bitmap_ex(depth, SCREEN_XSIZE, SCREEN_YSIZE);
+
+    set_window_title(gameTitle);
+    
+    Engine.borderless = false; // disabled
+    
+    if (Engine.colourMode == 0) {
+	PALETTE rgbPal;
+	    
+	for(int x = 0; x < 256; x++)
+	{
+		int v;    
+	
+		v = (x & 3);
+		rgbPal[x].b = (v << 4) + (v << 2) + v;
+		v = (x >> 2) & 7;
+		rgbPal[x].g = (v << 3) + v;
+		v = (x >> 5) & 7;
+		rgbPal[x].r = (v << 3) + v;	    
+	}
+	    
+	set_palette(rgbPal);
+    }
+    
+    set_close_button_callback(retro_close_button_callback);
+    
+#endif
+
     OBJECT_BORDER_X2 = SCREEN_XSIZE + 0x80;
     // OBJECT_BORDER_Y2 = SCREEN_YSIZE + 0x100;
 
@@ -154,6 +293,9 @@ int InitRenderDevice()
 }
 void FlipScreen()
 {
+    if (retro_close_button)
+	Engine.gameMode = ENGINE_EXITGAME;
+	
     if (Engine.gameMode == ENGINE_EXITGAME)
         return;
 
@@ -166,23 +308,36 @@ void FlipScreen()
     int pitch    = 0;
     void *pixels = NULL;
 
+#if RETRO_USING_ALLEGRO4
+    #define CM0_PACK_RGB888(r,g,b)     ((b >> 6) | ((g >> 5) << 2) | ((r >> 5) << 5))
+#else
+    #define CM0_PACK_RGB888	PACK_RGB888
+#endif
+    
+
     switch (Engine.colourMode) {
         case 0: // 8-bit
         {
+#if RETRO_USING_ALLEGRO4		
+	    unsigned char *frameBuffer = (unsigned char*)screenBuffer->dat;
+            memset(frameBuffer, 0, (SCREEN_XSIZE * SCREEN_YSIZE));
+#else
             uint *frameBuffer = new uint[SCREEN_XSIZE * SCREEN_YSIZE];
             memset(frameBuffer, 0, (SCREEN_XSIZE * SCREEN_YSIZE) * sizeof(uint));
+#endif
+		
             if (fadeMode) {
                 for (int y = 0; y < waterDrawPos; ++y) {
                     for (int x = 0; x < SCREEN_XSIZE; ++x) {
                         Colour clr                          = palette8F[Engine.pixelBuffer[(y * SCREEN_XSIZE) + x]];
-                        frameBuffer[(y * SCREEN_XSIZE) + x] = PACK_RGB888(clr.r, clr.g, clr.b);
+                        frameBuffer[(y * SCREEN_XSIZE) + x] = CM0_PACK_RGB888(clr.r, clr.g, clr.b);
                     }
                 }
 
                 for (int y = waterDrawPos; y < SCREEN_YSIZE; ++y) {
                     for (int x = 0; x < SCREEN_XSIZE; ++x) {
                         Colour clr                          = palette8WF[Engine.pixelBuffer[(y * SCREEN_XSIZE) + x]];
-                        frameBuffer[(y * SCREEN_XSIZE) + x] = PACK_RGB888(clr.r, clr.g, clr.b);
+                        frameBuffer[(y * SCREEN_XSIZE) + x] = CM0_PACK_RGB888(clr.r, clr.g, clr.b);
                     }
                 }
             }
@@ -190,14 +345,14 @@ void FlipScreen()
                 for (int y = 0; y < waterDrawPos; ++y) {
                     for (int x = 0; x < SCREEN_XSIZE; ++x) {
                         Colour clr                          = palette8[Engine.pixelBuffer[(y * SCREEN_XSIZE) + x]];
-                        frameBuffer[(y * SCREEN_XSIZE) + x] = PACK_RGB888(clr.r, clr.g, clr.b);
+                        frameBuffer[(y * SCREEN_XSIZE) + x] = CM0_PACK_RGB888(clr.r, clr.g, clr.b);
                     }
                 }
 
                 for (int y = waterDrawPos; y < SCREEN_YSIZE; ++y) {
                     for (int x = 0; x < SCREEN_XSIZE; ++x) {
                         Colour clr                          = palette8W[Engine.pixelBuffer[(y * SCREEN_XSIZE) + x]];
-                        frameBuffer[(y * SCREEN_XSIZE) + x] = PACK_RGB888(clr.r, clr.g, clr.b);
+                        frameBuffer[(y * SCREEN_XSIZE) + x] = CM0_PACK_RGB888(clr.r, clr.g, clr.b);
                     }
                 }
             }
@@ -206,14 +361,19 @@ void FlipScreen()
             SDL_LockTexture(Engine.screenBuffer, NULL, &pixels, &pitch);
             memcpy(pixels, frameBuffer, pitch * SCREEN_YSIZE);
             SDL_UnlockTexture(Engine.screenBuffer);
-#endif
+
             if (frameBuffer)
                 delete[] frameBuffer;
+#endif
             break;
         }
         case 1: // 16-bit
         {
+#if RETRO_USING_ALLEGRO4
+            ushort *frameBuffer = (ushort*)screenBuffer->dat;
+#else
             ushort *frameBuffer = new ushort[SCREEN_XSIZE * SCREEN_YSIZE];
+#endif
             memset(frameBuffer, 0, (SCREEN_XSIZE * SCREEN_YSIZE) * sizeof(ushort));
             if (fadeMode) {
                 for (int y = 0; y < waterDrawPos; ++y) {
@@ -246,14 +406,18 @@ void FlipScreen()
             SDL_LockTexture(Engine.screenBuffer, NULL, &pixels, &pitch);
             memcpy(pixels, frameBuffer, pitch * SCREEN_YSIZE);
             SDL_UnlockTexture(Engine.screenBuffer);
-#endif
             if (frameBuffer)
                 delete[] frameBuffer;
+#endif
             break;
         }
         case 2: // 32-bit
         {
+#if RETRO_USING_ALLEGRO4
+            uint *frameBuffer = (uint*)screenBuffer->dat;
+#else
             uint *frameBuffer = new uint[SCREEN_XSIZE * SCREEN_YSIZE];
+#endif
             memset(frameBuffer, 0, (SCREEN_XSIZE * SCREEN_YSIZE) * sizeof(uint));
             if (fadeMode) {
                 for (int y = 0; y < waterDrawPos; ++y) {
@@ -302,9 +466,9 @@ void FlipScreen()
             SDL_LockTexture(Engine.screenBuffer, NULL, &pixels, &pitch);
             memcpy(pixels, frameBuffer, pitch * SCREEN_YSIZE);
             SDL_UnlockTexture(Engine.screenBuffer);
-#endif
             if (frameBuffer)
                 delete[] frameBuffer;
+#endif
             break;
         }
     }
@@ -315,6 +479,10 @@ void FlipScreen()
 
     SDL_RenderPresent(Engine.renderer);
 #endif
+    
+#if RETRO_USING_ALLEGRO4
+     stretch_blit(screenBuffer, screen, 0, 0,  screenBuffer->w, screenBuffer->h, 0, 0, SCREEN_W, SCREEN_H);
+#endif    
 }
 
 void ReleaseRenderDevice()

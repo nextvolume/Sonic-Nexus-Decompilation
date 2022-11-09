@@ -196,15 +196,18 @@ bool getControllerButton(byte buttonID)
 
 void controllerInit(byte controllerID)
 {
+#if defined(RETRO_USING_SDL1) || defined(RETRO_USING_SDL2)	
     SDL_GameController *controller = SDL_GameControllerOpen(controllerID);
     if (controller) {
         controllers.push_back(controller);
         inputType = 1;
     }
+#endif
 }
 
 void controllerClose(byte controllerID)
 {
+#if defined(RETRO_USING_SDL1) || defined(RETRO_USING_SDL2)		
     SDL_GameController *controller = SDL_GameControllerFromInstanceID(controllerID);
     if (controller) {
         SDL_GameControllerClose(controller);
@@ -214,6 +217,7 @@ void controllerClose(byte controllerID)
     if (controllers.empty()) {
         inputType = 0;
     }
+#endif	
 }
 
 void ProcessInput()
@@ -354,6 +358,147 @@ void ProcessInput()
     if (!flag && inputType == 1) {
         inputDevice[INPUT_ANY].setReleased();
     }
+#endif
+
+#if RETRO_USING_ALLEGRO4
+	static bool wasKey[256];
+	static bool firstTime = true;
+	
+	if ( firstTime ) {
+		bzero(wasKey, sizeof(wasKey));
+		firstTime = false;
+	}
+
+	static const int a[INPUT_ANY] = {INPUT_UP, INPUT_DOWN, INPUT_LEFT, INPUT_RIGHT, INPUT_BUTTONA,
+		INPUT_BUTTONB, INPUT_BUTTONC, INPUT_START};
+	static const int b[INPUT_ANY] = {KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_Z,
+		KEY_X, KEY_C, KEY_ENTER};
+	
+
+	for (int x = 0; x < INPUT_ANY; x++)
+	{
+		int i = a[x];
+		int k = b[x];
+	
+		if (key[k]) {
+			if (wasKey[k])
+				inputDevice[i].hold = true;
+			else
+				inputDevice[i].hold = false;
+				
+			inputDevice[i].press = !inputDevice[i].hold;
+			
+			wasKey[k] = true;
+		}
+		else
+		{
+			inputDevice[i].hold =
+				inputDevice[i].press = false;
+		}
+	}
+		
+	if (key[KEY_ESC] && !wasKey[KEY_ESC]) {
+		if (Engine.devMenu) {
+			if (Engine.gameMode == ENGINE_SYSMENU && stageMode == DEVMENU_MODMENU) {
+				ReleaseStageSfx();
+				ReleaseGlobalSfx();
+				LoadGlobalSfx();
+
+				saveMods();
+			}
+
+			Engine.gameMode = ENGINE_INITSYSMENU;
+		}
+		else {
+			Engine.gameMode = ENGINE_EXITGAME;
+			return;
+		}
+	}
+		
+        if (key[KEY_F1] && !wasKey[KEY_F1]) {
+		if (Engine.devMenu) {
+			activeStageList   = 0;
+			stageListPosition = 0;
+			stageMode         = STAGEMODE_LOAD;
+			Engine.gameMode   = ENGINE_MAINGAME;
+		}
+		else {
+			Engine.gameMode = ENGINE_EXITGAME;
+			return;
+		}
+	}
+
+        if (key[KEY_F2] && !wasKey[KEY_F2]) {
+		if (Engine.devMenu) {
+			stageListPosition--;
+			while (stageListPosition < 0) {
+				activeStageList--;
+
+                                if (activeStageList < 0)
+                                    activeStageList = 3;
+                                stageListPosition = stageListCount[activeStageList] - 1;
+                            }
+                            stageMode       = STAGEMODE_LOAD;
+                            Engine.gameMode = ENGINE_MAINGAME;
+		}
+	}
+
+       if (key[KEY_F3] && !wasKey[KEY_F3]) {
+		if (Engine.devMenu) {
+			stageListPosition++;
+		while (stageListPosition >= stageListCount[activeStageList]) {
+			activeStageList++;
+
+			stageListPosition = 0;
+				
+			if (activeStageList >= 4)
+				activeStageList = 0;
+			}
+			stageMode       = STAGEMODE_LOAD;
+			Engine.gameMode = ENGINE_MAINGAME;
+		}
+	}
+	
+        if (key[KEY_F4] && !wasKey[KEY_F4]) {
+		Engine.isFullScreen ^= 1;
+		if (Engine.isFullScreen) {
+
+                        }
+                        else {
+
+                        }
+	}
+
+         if (key[KEY_F5] && !wasKey[KEY_F5]) {
+		if (Engine.devMenu) {
+			currentStageFolder[0] = 0; // reload all assets & scripts
+			stageMode             = STAGEMODE_LOAD;
+		}
+	}
+	
+	if (key[KEY_Q] && !wasKey[KEY_Q]) {
+		Engine.gameMode = ENGINE_EXITGAME;
+		return;
+	}
+
+	if (key[KEY_BACKSPACE] && !wasKey[KEY_BACKSPACE]) {
+		if (Engine.devMenu)
+			Engine.gameSpeed = Engine.fastForwardSpeed;
+	}
+
+	if (key[KEY_F11] && !wasKey[KEY_F11]) {
+		if (Engine.masterPaused)
+			Engine.frameStep = true;
+	}
+
+	if (key[KEY_F12] && !wasKey[KEY_F12]) {
+		if (Engine.devMenu)
+			Engine.masterPaused ^= 1;
+	}
+	
+	for (int x = 0; x < 256; x++)
+		wasKey[x] = key[x] != 0;
+	
 #endif
 }
 #endif

@@ -9,6 +9,57 @@ bool engineDebugMode = false;
 
 RetroEngine Engine = RetroEngine();
 
+#if RETRO_WSSAUDIO || RETRO_DOSSOUND
+int sampleConvSize;
+
+Sint16 *sampleConvBuf;
+#endif
+
+#if RETRO_WSSAUDIO
+static int latency_size = 48000 / 30;
+
+static int wssaudio_write(short * buffer, int len)
+{
+	int samples = w_get_buffer_size() - w_get_latency() - latency_size;
+	if((samples <= 0) || (len == 0))
+		return 0;
+	if(len > samples)
+		len = samples;
+	w_lock_mixing_buffer(len);
+	w_mixing_stereo(buffer, len, 256, 256);
+	w_unlock_mixing_buffer();
+	return len;
+}
+#endif
+
+#if RETRO_DOSSOUND
+
+static int dossound_get_buffer_number(void)
+{
+	unsigned char c;
+
+	_dosmemgetb(musInfo.curBufNumAddr, 1, &c);
+	
+	return c;
+}
+
+static bool dossound_buffer_number_changed(int *bufNum) {
+	static int old = -1;
+	
+	int n = dossound_get_buffer_number();
+	bool r = (old != n);
+	
+	old = n;
+	*bufNum = n;
+	return r;
+}
+
+static void dossound_write_to_buffer(int bufNum, void *data) {
+	dosmemput(data, musInfo.bufSize, musInfo.bufAddr + (bufNum * musInfo.bufSize));
+}
+
+#endif
+
 inline int getLowerRate(int intendRate, int targetRate)
 {
     int result   = 0;
@@ -267,19 +318,94 @@ void RetroEngine::Init()
     skipFrameIndex   = refreshRate / lower;
 }
 
+#if RETRO_USING_ALLEGRO4
+
+volatile int game_counter = 0;
+
+void game_counter_handler(void)
+{
+	game_counter++;
+}
+END_OF_FUNCTION(game_counter_handler)
+
+#endif
+
 void RetroEngine::Run()
 {
+#if RETRO_USING_ALLEGRO4
+    LOCK_VARIABLE(game_counter);
+    LOCK_FUNCTION(game_counter_handler);
+
+    install_int_ex(game_counter_handler, BPS_TO_TIMER(Engine.refreshRate));
+#endif	
+
+#if RETRO_USING_SDL1 || RETRO_USING_SDL2	
     unsigned long long targetFreq = SDL_GetPerformanceFrequency() / Engine.refreshRate;
     unsigned long long curTicks   = 0;
-    
+#endif
+
+#if RETRO_WSSAUDIO
+    int smpcnt = (float)AUDIO_SAMPLES / 2;
+
+    if (wssSampleRate != 44100) {
+	sampleConvSize = Resample_s16(NULL, NULL, 44100, wssSampleRate, smpcnt, 2) * 2 * 2;
+	sampleConvBuf = (Sint16*)malloc(sampleConvSize);
+    }
+    else
+        sampleConvSize = -1;
+#endif
+
+#if RETRO_DOSSOUND
+    int playingBuf;
+#endif
+
+    unsigned char *str;
+
+	
     while (running) {
 #if !RETRO_USE_ORIGINAL_CODE
+#if RETRO_USING_SDL1 || RETRO_USING_SDL2	    
         if (!vsync) {
             if (SDL_GetPerformanceCounter() < curTicks + targetFreq)
                 continue;
             curTicks = SDL_GetPerformanceCounter();
         }
 #endif
+#endif
+
+#if RETRO_WSSAUDIO
+	if (audioEnabled) {
+		if( w_get_requested_sample_count() > 0) {
+		    ProcessAudioPlayback(NULL, (Uint8*)musInfo.stream, smpcnt);
+		    
+		    if (sampleConvSize == -1)
+			wssaudio_write(musInfo.stream, smpcnt);
+		    else {
+			Resample_s16(musInfo.stream, sampleConvBuf, 44100, wssSampleRate, smpcnt, 2);
+			wssaudio_write(sampleConvBuf, (sampleConvSize / 2) / 2);
+	            }	
+		}
+        }	
+#elif RETRO_DOSSOUND
+	if (audioEnabled) {
+		if(dossound_buffer_number_changed(&playingBuf)) {
+		    ProcessAudioPlayback(NULL, (Uint8*)musInfo.stream, musInfo.bufSize / 2 / 2);
+		    
+		    dossound_write_to_buffer(!playingBuf, musInfo.stream);
+		}
+	}
+#elif RETRO_USING_ALLEGRO4
+	if ( audioEnabled && ( str = (unsigned char*)get_audio_stream_buffer(musInfo.stream) )) {
+		ProcessAudioPlayback(NULL, str, AUDIO_SAMPLES);
+		free_audio_stream_buffer(musInfo.stream);
+	}
+#endif
+	
+#if RETRO_USING_ALLEGRO4	
+	while(!game_counter);
+	game_counter = 0;
+#endif
+	
         running = processEvents();
 
         for (int s = 0; s < gameSpeed; ++s) {
@@ -317,6 +443,20 @@ void RetroEngine::Run()
 
 #if RETRO_USING_SDL1 || RETRO_USING_SDL2
     SDL_Quit();
+#endif
+    
+#if RETRO_WSSAUDIO
+    w_sound_device_exit();
+#endif
+
+#if RETRO_DOSSOUND
+    if (audioEnabled) {
+	__dpmi_regs i;
+
+        i.h.ah = 0x21; // stop
+
+        __dpmi_int(DOSSOUND_INT, &i);
+    }
 #endif
 }
 

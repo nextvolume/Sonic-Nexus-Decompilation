@@ -9,6 +9,12 @@
 #include "SDL.h"
 #endif
 
+#if RETRO_USING_ALLEGRO4
+#define AUDIO_FREQUENCY (44100)
+#define AUDIO_SAMPLES   (0x800)
+#define AUDIO_CHANNELS  (2)
+#endif
+
 #define TRACK_COUNT (0x10)
 #define SFX_COUNT (0x100)
 #define CHANNEL_COUNT (0x4)
@@ -30,10 +36,25 @@ struct MusicPlaybackInfo {
 #if RETRO_USING_SDL2
     SDL_AudioStream *stream;
 #endif
+#if RETRO_USING_ALLEGRO4	
+#if RETRO_WSSAUDIO
+    Sint16 *stream;
+#elif RETRO_DOSSOUND
+    Sint16 *stream;
+    unsigned bufAddr;
+    unsigned bufSize;
+    unsigned curBufNumAddr;
+    unsigned sampleRate;
+#else
+    AUDIOSTREAM *stream;
+#endif
+#endif
+
     Sint16 *buffer;
     FileInfo fileInfo;
     bool trackLoop;
     bool loaded;
+    int loopPoint;
 };
 
 struct SFXInfo {
@@ -115,14 +136,18 @@ inline void freeMusInfo()
     }
 }
 #else
-void ProcessMusicStream() {}
+/*void ProcessMusicStream() {}
 void ProcessAudioPlayback() {}
 void ProcessAudioMixing() {}
+*/
+void ProcessMusicStream(void *data, Sint16 *stream, int len);
+void ProcessAudioPlayback(void *data, Uint8 *stream, int len);
+void ProcessAudioMixing(Sint32 *dst, const Sint16 *src, int len, int volume, sbyte pan);
 
 inline void freeMusInfo()
 {
     if (musInfo.loaded) {
-        SDL_LockAudio();
+//        SDL_LockAudio();
 
         if (musInfo.buffer)
             delete[] musInfo.buffer;
@@ -133,7 +158,7 @@ inline void freeMusInfo()
         musInfo.loaded    = false;
         musicStatus       = MUSIC_STOPPED;
 
-        SDL_UnlockAudio();
+//        SDL_UnlockAudio();
     }
 }
 #endif
@@ -219,5 +244,15 @@ inline void ReleaseAudioDevice()
     ReleaseStageSfx();
     ReleaseGlobalSfx();
 }
+
+#if !RETRO_USING_SDL2 && !RETRO_USING_SDL1
+uint64_t Resample_s16(const int16_t *input, int16_t *output, int inSampleRate, int outSampleRate, uint64_t inputSize,
+                      uint32_t channels);
+#endif
+
+#if RETRO_WSSAUDIO
+extern int wssSampleRate;
+#endif
+
 
 #endif // !AUDIO_H
